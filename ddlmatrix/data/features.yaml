@@ -1,0 +1,101 @@
+# DDL concurrency-option supportability matrix.
+#
+# THIS FILE IS THE SOURCE OF TRUTH. features_gen.go is generated from it.
+# Edit here, then run `go generate ./...` from the repo root.
+#
+# Two tools read this, in opposite directions:
+#   - SqlGoPace, to CHOOSE which options to emit for a DDL statement;
+#   - ShareLock, to judge whether an observed outage WAS AVOIDABLE.
+# A wrong constant here produces confidently wrong advice in both. Every
+# entry carries its Learn URL and verification date.
+
+verified: 2026-09-16
+
+features:
+
+  - id: online_index_operations
+    name: ONLINE = ON for index create/rebuild
+    source: https://learn.microsoft.com/sql/sql-server/editions-and-components-of-sql-server-2025
+    also: https://learn.microsoft.com/sql/relational-databases/indexes/perform-index-operations-online
+    # Enterprise-only on box, confirmed in the editions tables for 2017,
+    # 2019, 2022 AND 2025. This was NEVER democratised to Standard — the
+    # single most likely place for this matrix to be wrong from memory.
+    box_requires_enterprise: true
+    azure_sql_database: true
+    managed_instance: true
+    statements:
+      - { kind: create_index,        min_version: 2008 }
+      - { kind: alter_index_rebuild, min_version: 2008 }
+      - { kind: add_constraint_pk_unique, min_version: 2014 }
+      - { kind: alter_column,        min_version: 2016, note: "narrow eligibility; type/size/collation changes that alter row layout cannot be online" }
+    # Index-level exclusions, independent of edition and version.
+    excluded_when:
+      - clustered index on a table containing image, ntext or text columns
+      - index on a local temp table (global temp tables are fine)
+      - XML index
+      - initial unique clustered index on a view
+      - disabled clustered index
+      - clustered columnstore on SQL Server 2017 and earlier
+      - nonclustered columnstore on SQL Server 2016 and earlier
+    notes:
+      - A nonunique nonclustered index CAN be built online when the table has
+        LOB columns, provided none appear in the index definition as key or
+        included columns.
+
+  - id: wait_at_low_priority
+    name: WAIT_AT_LOW_PRIORITY
+    source: https://learn.microsoft.com/sql/t-sql/statements/alter-index-transact-sql
+    also: https://learn.microsoft.com/sql/t-sql/statements/create-index-transact-sql
+    box_requires_enterprise: false
+    azure_sql_database: true
+    managed_instance: true
+    # The version floor differs BY STATEMENT KIND. On SQL Server 2019 a
+    # rebuild can wait at low priority but a create cannot — an advisor that
+    # checks only ">= 2014" will emit syntax that fails to parse.
+    statements:
+      - { kind: alter_index_rebuild,      min_version: 2014 }
+      - { kind: alter_table_rebuild,      min_version: 2014 }
+      - { kind: alter_table_switch,       min_version: 2014 }
+      - { kind: alter_database,           min_version: 2014 }
+      - { kind: create_index,             min_version: 2022 }
+    notes:
+      - Omitting the option equals WAIT_AT_LOW_PRIORITY (MAX_DURATION = 0, ABORT_AFTER_WAIT = NONE).
+      - ABORT_AFTER_WAIT = BLOCKERS requires ALTER ANY CONNECTION.
+      - ABORT_AFTER_WAIT = SELF cannot be used with MAX_DURATION = 0.
+      - Surfaces in wait stats as LCK_M_SCH_M_LOW_PRIORITY and LCK_M_S_LOW_PRIORITY.
+
+  - id: resumable
+    name: RESUMABLE = ON
+    source: https://learn.microsoft.com/sql/t-sql/statements/alter-index-transact-sql
+    also: https://learn.microsoft.com/sql/relational-databases/security/resumable-add-table-constraints
+    box_requires_enterprise: true
+    azure_sql_database: true
+    managed_instance: true
+    # RESUMABLE requires ONLINE. Evaluate that dependency FIRST: on an
+    # edition without online index operations it is unreachable regardless
+    # of version, and reporting the two independently yields advice with
+    # two unmentioned blockers.
+    requires: [online_index_operations]
+    statements:
+      - { kind: alter_index_rebuild,      min_version: 2017 }
+      - { kind: create_index,             min_version: 2019 }
+      - { kind: add_constraint_pk_unique, min_version: 2022 }
+      - { kind: add_constraint_foreign_key, supported: false, note: "never resumable in any version" }
+    excluded_when:
+      - SORT_IN_TEMPDB = ON is requested
+      - the DDL runs inside an explicit transaction
+      - ALTER INDEX REBUILD ALL
+      - ALTER TABLE REBUILD
+      - columnstore index
+      - filtered index (check sys.indexes.has_filter)
+      - disabled index
+      - computed or timestamp column as a key column
+      - computed or LOB column as an included column
+      - table has CDC enabled (constraints only)
+      - memory-optimized or system table (constraints only)
+    notes:
+      - On Hyperscale, where SORT_IN_TEMPDB is normally always ON, RESUMABLE forces it OFF.
+      - Progress and state live in sys.index_resumable_operations; state_desc is only
+        ever RUNNING or PAUSED — ABORT removes the row, there is no ABORTED state.
+      - While paused, a transaction needing a table-level X lock (INSERT ... WITH (TABLOCK))
+        fails with error 10637 rather than blocking.

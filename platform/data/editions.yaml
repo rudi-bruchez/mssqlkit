@@ -1,0 +1,119 @@
+# Engine editions — the values returned by SERVERPROPERTY('EngineEdition').
+#
+# THIS FILE IS THE SOURCE OF TRUTH. editions_gen.go is generated from it.
+# Edit here, then run `go generate ./...` from the repo root.
+#
+# Every entry carries the Learn URL it was read from and the date it was
+# verified. A fact without a source is not a fact — it is a guess someone
+# will act on. If you add an entry, add its source.
+
+source: https://learn.microsoft.com/sql/t-sql/functions/serverproperty-transact-sql
+verified: 2026-09-16
+
+engine_editions:
+  - value: 1
+    const: Personal
+    name: Personal or Desktop Engine
+    family: box
+    # Not available in SQL Server 2005 (9.x) and later. Present for completeness
+    # so that an unexpected 1 is reported as "obsolete", not as "unknown".
+    obsolete: true
+
+  - value: 2
+    const: Standard
+    name: Standard
+    family: box
+    # Covers Standard, Standard Developer, Web and Business Intelligence.
+    # NOTE: "Standard Developer" (SQL Server 2025+) lands here, NOT on 3.
+    # A Developer edition without online index operations is a real and
+    # surprising case — do not assume Developer implies Enterprise-class.
+    covers: [Standard, Standard Developer, Web, Business Intelligence]
+    enterprise_class: false
+
+  - value: 3
+    const: Enterprise
+    name: Enterprise
+    family: box
+    # Covers Enterprise, Enterprise Developer, Developer and Evaluation.
+    covers: [Enterprise, Enterprise Developer, Developer, Evaluation]
+    enterprise_class: true
+
+  - value: 4
+    const: Express
+    name: Express
+    family: box
+    covers: [Express, Express with Tools, Express with Advanced Services]
+    enterprise_class: false
+
+  - value: 5
+    const: AzureSQLDatabase
+    name: Azure SQL Database
+    family: azure_sql_database
+    # SERVERPROPERTY('Edition') returns "SQL Azure" here AND on Managed
+    # Instance. EngineEdition is the only reliable discriminator between 5
+    # and 8 — never branch on the Edition string.
+    enterprise_class: true   # no edition gate on Azure SQL Database
+
+  - value: 6
+    const: AzureSynapseDedicated
+    name: Azure Synapse Analytics (dedicated SQL pool)
+    family: synapse
+    supported: false         # out of scope: different locking/DMV surface
+
+  - value: 7
+    const: StretchDatabase
+    name: Stretch Database
+    family: other
+    # Present in the SMO DatabaseEngineEdition enum but absent from the
+    # SERVERPROPERTY table; Stretch Database is retired. Reported as
+    # unsupported rather than unknown.
+    source: https://learn.microsoft.com/dotnet/api/microsoft.sqlserver.management.common.databaseengineedition
+    supported: false
+
+  - value: 8
+    const: AzureSQLManagedInstance
+    name: Azure SQL Managed Instance
+    family: managed_instance
+    # "This value uniquely identifies a managed instance."
+    source: https://learn.microsoft.com/azure/azure-sql/managed-instance/sql-managed-instance-paas-overview
+    enterprise_class: true   # no edition gate on Managed Instance
+
+  - value: 9
+    const: AzureSQLEdge
+    name: Azure SQL Edge
+    family: other
+    supported: false
+
+  - value: 10
+    const: AzureArcManagedInstance
+    name: Azure Arc Managed SQL Instance
+    family: other
+    source: https://learn.microsoft.com/dotnet/api/microsoft.sqlserver.management.common.databaseengineedition
+    supported: false
+
+  - value: 11
+    const: AzureSynapseServerless
+    name: Azure Synapse serverless SQL pool, or Microsoft Fabric
+    family: synapse
+    supported: false
+
+  - value: 12
+    const: FabricSQLDatabase
+    name: SQL database in Microsoft Fabric
+    family: fabric
+    supported: false         # v1 scope: box, MI and Azure SQL Database only
+
+# Managed Instance update policy, from SERVERPROPERTY('ProductUpdateType').
+# This is how to detect programmatically whether an MI can offer features
+# gated on the Always-up-to-date policy — optimized locking is not available
+# under the SQL Server 2022 update policy.
+update_policies:
+  source: https://learn.microsoft.com/azure/azure-sql/managed-instance/sql-managed-instance-paas-overview
+  verified: 2026-09-16
+  values:
+    - value: CU
+      const: CumulativeUpdate
+      name: Cumulative updates for the corresponding major SQL Server release
+    - value: Continuous
+      const: AlwaysUpToDate
+      name: Always-up-to-date update policy

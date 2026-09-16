@@ -20,8 +20,10 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
+# Go workspace file.
+# go.work IS committed here: this is a multi-module repository and the
+# workspace describes the repo itself, not one developer machine. Without it a
+# fresh clone cannot resolve the sibling modules.
 go.work.sum
 
 # env file
